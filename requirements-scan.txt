@@ -1,0 +1,4 @@
+# Optional: decode page photos / PDFs in scanrepo-restore.py (also needs the zbar library,
+# e.g. apt install libzbar0, brew install zbar) and pdftoppm (poppler) for PDFs.
+pyzbar==0.1.9
+pillow>=10

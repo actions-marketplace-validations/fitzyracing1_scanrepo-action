@@ -1,0 +1,43 @@
+# scanrepo v1
+---
+repo: paper-git
+edition: 1
+branch: main
+commit: 5b611a07beceee1ea8e148de714fb71c7d5e549e
+tree: 1c7284bce3bfab13b70206fd7ac78213ffe9b8f2
+parent: none
+pages: 2
+---
+## PAGE 1
+path: README.md
+mode: 100644
+blob: 1496e2fda5a38c43ae0d3e6576e5375762e3060c
+chunk: 1
+chunk_of: 1
+text:
+# paper git
+
+This booklet is the software.
+Read it. Or scan every page QR and run scanrepo-restore.py.
+
+Edition rule: a new printing is a new commit.
+The parent hash on the cover is the previous booklet.
+## END PAGE
+## PAGE 2
+path: hello.py
+mode: 100755
+blob: 1f56a6b03617ffeaf92d04af9bef4e28e2a03c0d
+chunk: 1
+chunk_of: 1
+text:
+#!/usr/bin/env python3
+"""Small program meant to live on paper."""
+
+
+def greet(name="paper"):
+    return f"hello from {name}"
+
+
+if __name__ == "__main__":
+    print(greet("scanrepo"))
+## END PAGE

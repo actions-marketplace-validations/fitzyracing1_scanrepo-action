@@ -1,0 +1,5 @@
+{
+  "action": "published",
+  "release": { "tag_name": "v9.9.9-consumer", "target_commitish": "main" },
+  "repository": { "name": "consumer", "full_name": "example/consumer" }
+}

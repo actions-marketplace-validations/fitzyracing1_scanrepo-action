@@ -1,0 +1,39 @@
+# Local test for the composite action with nektos/act, run from this repo (uses: ./):
+#   sudo act release -W tests/act/release.yml -e tests/act/release-event.json \
+#     -P ubuntu-latest=catthehacker/ubuntu:act-latest --pull=false
+# A fake `gh` records the upload instead of calling GitHub.
+name: act-release-test
+on:
+  release:
+    types: [published]
+permissions:
+  contents: write
+jobs:
+  print:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fake gh (no network)
+        run: |
+          mkdir -p "$RUNNER_TEMP/fakebin"
+          printf '#!/bin/sh\necho "FAKE gh $*" | tee -a "$RUNNER_TEMP/gh-calls.txt"\n' > "$RUNNER_TEMP/fakebin/gh"
+          chmod +x "$RUNNER_TEMP/fakebin/gh"
+          echo "$RUNNER_TEMP/fakebin" >> "$GITHUB_PATH"
+      - id: print
+        uses: ./
+        with:
+          exclude: "tests/**"
+      - name: Check outputs
+        env:
+          SR: ${{ steps.print.outputs.scanrepo-path }}
+          PDF: ${{ steps.print.outputs.pdf-path }}
+        run: |
+          set -eux
+          echo "commit=${{ steps.print.outputs.commit }} edition=${{ steps.print.outputs.edition }} pages=${{ steps.print.outputs.pages }} omitted=${{ steps.print.outputs.omitted }}"
+          test -s "$SR" && test -s "$PDF"
+          head -12 "$SR"
+          python3 scanrepo-restore.py "$SR" "$RUNNER_TEMP/restored" --strict
+          test "$(git -C "$RUNNER_TEMP/restored" rev-parse HEAD)" = "$(git rev-parse HEAD)"
+          grep -q "release upload v0.0.0-test" "$RUNNER_TEMP/gh-calls.txt"

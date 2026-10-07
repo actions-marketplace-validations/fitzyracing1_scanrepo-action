@@ -1,0 +1,42 @@
+# The action used from ANOTHER repo, the way Marketplace users call it.
+# Run act inside some other git checkout (tests/make_fixture.sh makes one):
+#   sudo act release -W /path/to/scanrepo-action/tests/act/consumer.yml \
+#     -e /path/to/scanrepo-action/tests/act/consumer-event.json \
+#     -P ubuntu-latest=catthehacker/ubuntu:act-latest --pull=false \
+#     --local-repository fitzyracing1/scanrepo-action@v1=/path/to/scanrepo-action
+# Drop --local-repository to test the published @v1. A fake `gh` records the upload.
+name: act-consumer-test
+on:
+  release:
+    types: [published]
+permissions:
+  contents: write
+jobs:
+  print:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fake gh (no network)
+        run: |
+          mkdir -p "$RUNNER_TEMP/fakebin"
+          printf '#!/bin/sh\necho "FAKE gh $*" | tee -a "$RUNNER_TEMP/gh-calls.txt"\n' > "$RUNNER_TEMP/fakebin/gh"
+          chmod +x "$RUNNER_TEMP/fakebin/gh"
+          echo "$RUNNER_TEMP/fakebin" >> "$GITHUB_PATH"
+      - id: print
+        uses: fitzyracing1/scanrepo-action@v1
+        with:
+          exclude: "secret.env"
+      - name: Check outputs
+        env:
+          SR: ${{ steps.print.outputs.scanrepo-path }}
+          PDF: ${{ steps.print.outputs.pdf-path }}
+        run: |
+          set -eux
+          test -s "$SR" && test -s "$PDF"
+          test ! -e scanrepo                      # action code did not leak into the workspace
+          grep -q "^commit: $(git rev-parse HEAD)$" "$SR"
+          grep -q "^repo: consumer$" "$SR"
+          test "${{ steps.print.outputs.edition }}" = "$(git rev-list --count HEAD)"
+          grep -q "release upload v9.9.9-consumer" "$RUNNER_TEMP/gh-calls.txt"

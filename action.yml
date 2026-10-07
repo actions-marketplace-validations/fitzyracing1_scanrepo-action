@@ -1,0 +1,128 @@
+name: Print Repo (scanrepo)
+description: Print a commit as a readable PDF booklet whose QR codes scan back to the same blob, tree and commit ids.
+author: Joshua Almeida
+branding:
+  icon: printer
+  color: gray-dark
+
+inputs:
+  ref:
+    description: Commit-ish to print. Default is the checked-out commit.
+    required: false
+    default: HEAD
+  path:
+    description: Path of the git checkout.
+    required: false
+    default: .
+  edition:
+    description: Edition number for the cover. Default is the commit count of ref (needs fetch-depth 0).
+    required: false
+    default: ''
+  branch:
+    description: Branch name for the cover. Default is the release target, the PR head, or the ref name.
+    required: false
+    default: ''
+  repo-name:
+    description: Repo name for the cover. Default is the repository name.
+    required: false
+    default: ''
+  output-dir:
+    description: Directory for the .scanrepo master and the PDF.
+    required: false
+    default: scanrepo-out
+  max-file-size:
+    description: Files larger than this many bytes are omitted (listed by id only). 0 means no limit.
+    required: false
+    default: '102400'
+  include:
+    description: Globs to print, comma or newline separated. Empty means everything. Other files are listed by id only.
+    required: false
+    default: ''
+  exclude:
+    description: Globs to leave off paper, comma or newline separated. Excluded files are listed by id only.
+    required: false
+    default: ''
+  page-size:
+    description: letter or a4.
+    required: false
+    default: letter
+  attach-to-release:
+    description: On a release event, upload the .scanrepo and PDF to that release (needs contents write).
+    required: false
+    default: 'true'
+  token:
+    description: Token for the release upload.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  scanrepo-path:
+    description: Path of the .scanrepo master.
+    value: ${{ steps.build.outputs.scanrepo-path }}
+  pdf-path:
+    description: Path of the printable PDF.
+    value: ${{ steps.build.outputs.pdf-path }}
+  commit:
+    description: Commit id printed on the cover.
+    value: ${{ steps.build.outputs.commit }}
+  edition:
+    description: Edition printed on the cover.
+    value: ${{ steps.build.outputs.edition }}
+  pages:
+    description: Number of page blocks (the PDF adds a cover).
+    value: ${{ steps.build.outputs.pages }}
+  omitted:
+    description: Number of files listed by id only (binary, too large, excluded, submodule).
+    value: ${{ steps.build.outputs.omitted }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up scanrepo
+      shell: bash
+      env:
+        SR_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        py=$(command -v python3 || command -v python)
+        venv="${RUNNER_TEMP:-/tmp}/scanrepo-venv"
+        "$py" -m venv "$venv"
+        if [ -x "$venv/bin/python" ]; then vpy="$venv/bin/python"; else vpy="$venv/Scripts/python.exe"; fi
+        "$vpy" -m pip install --quiet --disable-pip-version-check -r "$SR_ACTION_PATH/requirements.txt"
+        echo "SCANREPO_PYTHON=$vpy" >> "$GITHUB_ENV"
+
+    - name: Print repo
+      id: build
+      shell: bash
+      env:
+        SR_REF: ${{ inputs.ref }}
+        SR_PATH: ${{ inputs.path }}
+        SR_EDITION: ${{ inputs.edition }}
+        SR_BRANCH: ${{ inputs.branch || github.event.release.target_commitish || github.head_ref || github.ref_name }}
+        SR_NAME: ${{ inputs.repo-name || github.event.repository.name }}
+        SR_OUT: ${{ inputs.output-dir }}
+        SR_MAX: ${{ inputs.max-file-size }}
+        SR_INCLUDE: ${{ inputs.include }}
+        SR_EXCLUDE: ${{ inputs.exclude }}
+        SR_PAGE: ${{ inputs.page-size }}
+        SR_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        PYTHONPATH="$SR_ACTION_PATH${PYTHONPATH:+:$PYTHONPATH}" "$SCANREPO_PYTHON" -m scanrepo build \
+          --repo "$SR_PATH" --ref "$SR_REF" --edition "$SR_EDITION" --branch "$SR_BRANCH" \
+          --name "$SR_NAME" --out-dir "$SR_OUT" --max-file-size "$SR_MAX" \
+          --include "$SR_INCLUDE" --exclude "$SR_EXCLUDE" --page-size "$SR_PAGE" \
+          --github-output "$GITHUB_OUTPUT"
+
+    - name: Attach to release
+      if: inputs.attach-to-release == 'true' && github.event_name == 'release'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TAG: ${{ github.event.release.tag_name }}
+        SR_FILE: ${{ steps.build.outputs.scanrepo-path }}
+        PDF_FILE: ${{ steps.build.outputs.pdf-path }}
+      run: |
+        set -euo pipefail
+        gh release upload "$TAG" "$SR_FILE" "$PDF_FILE" --clobber --repo "$GITHUB_REPOSITORY"
+        echo "attached $(basename "$SR_FILE") and $(basename "$PDF_FILE") to release $TAG"

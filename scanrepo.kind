@@ -1,0 +1,99 @@
+---
+kind: scanrepo
+ext: .scanrepo
+version: 1
+mime: application/x-scanrepo
+binary: false
+trigger: scanrepo paper git printed repo physical software scan back
+---
+
+## Purpose
+
+Printable master of a git snapshot. A human can read the source on the page. A phone camera recovers the same bytes through page QR codes, then a restorer rebuilds blobs, a tree, and a commit so `git checkout` matches the paper.
+
+## Structure
+
+1. First line is the magic banner `# scanrepo v1`
+2. YAML frontmatter between `---` fences with keys: repo, edition, branch, commit, tree, parent, pages
+3. One or more page blocks. Each block starts with `## PAGE <n>` and ends with `## END PAGE`
+4. Inside a page block, header lines are `key: value` until a line that is exactly `text:`
+5. Lines after `text:` and before `## END PAGE` are the file bytes, including blank lines
+6. Required page keys: path, mode, blob, chunk, chunk_of
+7. Cover identity lives only in frontmatter. File bytes live only in page blocks.
+
+## Parse rules
+
+- Reject the file if line 1 is not `# scanrepo v1`
+- Frontmatter keys are required: repo, edition, branch, commit, tree, parent, pages
+- `parent` may be the token `none`
+- Page blocks must be numbered 1..pages with no gaps
+- Split header lines on the first `: `
+- File bytes are everything between the `text:` line and `## END PAGE`, with the trailing newline before `## END PAGE` stripped
+- Rejoin chunks for the same path in chunk order before hashing
+- Blob check: SHA-1 of `blob <len>\0` plus rejoined bytes must equal the `blob` field
+- Tree and commit fields are git object ids; the restorer recomputes them and rejects a mismatch
+- Trees nest: each directory is its own tree object (mode `40000`). Entries sort by name bytes, with a directory name compared as `name/`
+- If a page has `size`, its bytes are exactly `size` bytes after the `text:` line, followed by `\n## END PAGE`. This wins over the line rule
+- Ignore keys you do not know
+
+## Write rules
+
+- Always start with `# scanrepo v1`
+- One edition per file. A later printing is a new file with edition bumped and parent set to the prior commit
+- Never put packfiles or deltas in the body. Store full blob text
+- Chunk a file only when it will not fit one printed page (about 1800 source characters). The reference writer uses at most 1800 bytes of UTF-8 and 72 lines per page, splits at line ends, and splits a longer line at a character boundary
+- Text means valid UTF-8 with no NUL byte. Anything else is binary and stays off the page
+- A symlink (mode 120000) is a page whose text is the link target
+- Hash with git blob rules, not raw SHA-1 of the file
+- Page order is the recovery order. Path order inside a tree is byte-sorted, git style
+
+## Format 1.1
+
+Optional keys, same banner. A 1.1 master is still a v1 file, and `sample.scanrepo` (1.0) still restores. `format: 1.1` in the frontmatter marks it. Writers emit `size` on every page.
+
+Frontmatter keys that make the commit id checkable:
+
+- `author`, `committer`: the commit's author and committer lines after the keyword, verbatim (`Name <email> <unix-time> <tz>`)
+- `message`: the commit message as a JSON string (exact, UTF-8)
+- `commit_extra`: JSON string of the header lines after `committer` (`gpgsig`, `encoding`, `mergetag`), each with its newline. Absent when empty
+- `parents`: space-separated parent ids, merge commits only. `parent` holds the first
+- `<key>_b64`: base64 of the raw bytes, in place of `author`, `committer`, `message` or `commit_extra` when they are not UTF-8
+- `commit_object_b64`: base64 of the whole commit object, only when it does not fit the layout below
+- `omitted`: line count of the OMITTED block
+
+Commit object, hashed as `commit <len>\0` plus these bytes:
+
+```
+tree <tree>
+parent <id>          one line per parent, none when parent is none
+author <author>
+committer <committer>
+<commit_extra>
+                     blank line
+<message>
+```
+
+A 1.0 master has none of these keys. The restorer checks blobs and tree and says the commit is not verified.
+
+Files that stay off paper keep their ids, so the tree and commit still verify. They go in an optional block between the frontmatter and page 1:
+
+```
+## OMITTED
+<mode> <blob-or-commit-id> <reason> <path>
+## END OMITTED
+```
+
+Reasons: `binary`, `too-large`, `excluded`, `submodule` (mode 160000). The restored checkout lacks these files and git shows them deleted.
+
+## QR payloads
+
+Byte mode with an ECI 26 (UTF-8) header. Error correction M or better, L only when M will not fit. Version 40 at most.
+
+- Cover: `C|scanrepo1|<commit>|<i>/<n>` newline, then segment i. The segments joined in order are the master up to `## PAGE 1`. `n` is 1 unless that text runs past about 1900 bytes (long signatures, many omitted files). Then the cover codes get their own pages
+- Page: `P|scanrepo1|<commit>|<page>/<pages>` newline, then the page block from `## PAGE <page>` through `## END PAGE`
+- Rebuild: the cover segments, then each page block followed by a newline. That is the master, byte for byte
+- Reject a set of codes that carry more than one commit id
+
+## Example
+
+See sample.scanrepo (format 1.0)
