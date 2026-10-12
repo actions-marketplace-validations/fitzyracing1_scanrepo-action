@@ -94,3 +94,8 @@ This is a snapshot format, not a packfile. Deltas and binary assets are out. A 5
 ## License
 
 MIT. See `LICENSE`.
+
+## Documentation
+
+- In-repo docs: [docs/](docs/index.md)
+- Wiki: [https://github.com/fitzyracing1/scanrepo-action/wiki](https://github.com/fitzyracing1/scanrepo-action/wiki)
